@@ -42,33 +42,33 @@ void checkJobbList(int signum) {
 
 
 
-void calculateResult(struct calcProtocol calc)
+void calculateResult(struct calcProtocol *calc)
 {
-	switch (calc.arith)
+	switch (calc->arith)
 	{
 	case 1:
-		calc.inResult = calc.inValue1 + calc.inValue2;
+		calc->inResult = calc->inValue1 + calc->inValue2;
 		break;
 	case 2:
-		calc.inResult = calc.inValue1 - calc.inValue2;
+		calc->inResult = calc->inValue1 - calc->inValue2;
 		break;
 	case 3:
-		calc.inResult = calc.inValue1 * calc.inValue2;
+		calc->inResult = calc->inValue1 * calc->inValue2;
 		break;
 	case 4:
-		calc.inResult = calc.inValue1 / calc.inValue2;
+		calc->inResult = calc->inValue1 / calc->inValue2;
 		break;
 	case 5:
-		calc.flResult = calc.flValue1 + calc.flValue2;
+		calc->flResult = calc->flValue1 + calc->flValue2;
 		break;
 	case 6:
-		calc.flResult = calc.flValue1 - calc.flValue2;
+		calc->flResult = calc->flValue1 - calc->flValue2;
 		break;
 	case 7:
-		calc.flResult = calc.flValue1 * calc.flValue2;
+		calc->flResult = calc->flValue1 * calc->flValue2;
 		break;
 	case 8:
-		calc.flResult = calc.flValue1 / calc.flValue2;
+		calc->flResult = calc->flValue1 / calc->flValue2;
 		break;
 	default:
 		break;
@@ -83,6 +83,7 @@ int main(int argc, char* argv[]) {
 	}
 	/* Do more magic */
 	initCalcLib();
+	const double EPSILON = 0.001;
 	struct addrinfo guide, * serverInfo, * p;
 	struct sockaddr_in their_addr;
 	socklen_t addr_len = sizeof(their_addr);
@@ -101,6 +102,8 @@ int main(int argc, char* argv[]) {
 	guide.ai_flags = AI_PASSIVE;
 	uint8_t returnValue;
 	char clientMsg[100];
+	char clientIP[100];
+	int clientIP_Len = sizeof(clientIP);
 	if ((returnValue = getaddrinfo(NULL, argv[1], &guide, &serverInfo)) != 0)
 	{
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(returnValue));
@@ -139,10 +142,13 @@ int main(int argc, char* argv[]) {
 
 
 	while (terminate == 0)
+		printf("This is the main loop, %d time.\n", loopCount);
 	{
 		memset(&calcMsg, 0, sizeof(calcMsg));
-		printf("This is the main loop, %d time.\n", loopCount);
+		memset(&clientIP, 0, clientIP_Len);
 		numBytes = recvfrom(sockFD, &calcMsg, sizeof(calcMsg), 0, (struct sockaddr*) & their_addr, &addr_len);
+		inet_ntop(AF_INET, &their_addr.sin_addr, clientIP, clientIP_Len);
+		printf("---Client connected from %s:%d---\n", clientIP, ntohs(their_addr.sin_port));
 		printf("[>]Recieved %d bytes, %d\n", numBytes, calcMsg.protocol);
 		if (calcMsg.protocol == thisCalc.protocol)
 		{
@@ -151,66 +157,93 @@ int main(int argc, char* argv[]) {
 			calculate.type = 1;
 			char* oper = randomType();
 			printf("%s\n", oper);
-			if (strchr(oper, 'f'))
+			if (strchr(oper, 'f') != NULL)
 			{
-				if (strcmp(oper, "fdiv"))
+				if (strcmp(oper, "fdiv") == 0)
 				{
 					calculate.arith = 8;
 
 				}
-				else if (strcmp(oper, "fsub"))
+				else if (strcmp(oper, "fsub") == 0)
 				{
 					calculate.arith = 6;
 
 				}
-				else if (strcmp(oper, "fadd"))
+				else if (strcmp(oper, "fadd") == 0)
 				{
 					calculate.arith = 5;
 
 				}
-				else if (strcmp(oper, "fmul"))
+				else if (strcmp(oper, "fmul") == 0)
 				{
 					calculate.arith = 7;
 
 				}
 				calculate.flValue1 = randomFloat();
+				printf("Val 1: %8.8g\n", calculate.flValue1);
 
 				calculate.flValue2 = randomFloat();
+				printf("Val 2: %8.8g\n", calculate.flValue2);
+
 				clientCalc= calculate;
 			}
 			else
 			{
-
-				if (strcmp(oper, "sub"))
+				printf("Operation: %s\n", oper);
+				if (strcmp(oper, "sub") == 0)
 				{
 					calculate.arith = 2;
 
 				}
-				else if (strcmp(oper, "add"))
+				else if (strcmp(oper, "add") == 0)
 				{
 
 					calculate.arith = 1;
 				}
-				else if (strcmp(oper, "mul"))
+				else if (strcmp(oper, "mul") == 0)
 				{
 					calculate.arith = 3;
 
 				}
-				else if (strcmp(oper, "div"))
+				else if (strcmp(oper, "div") == 0)
 				{
 					calculate.arith = 4;
 
 				}
 				calculate.inValue1 = randomInt();
-
+				printf("Val 1: %d\n", calculate.inValue1);
 				calculate.inValue2 = randomInt();
+				printf("Val 2: %d\n", calculate.inValue2);
+				clientCalc = calculate;
+
 			}
 
-			numBytes = sendto(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & their_addr, addr_len);
+			numBytes = sendto(sockFD, &clientCalc, sizeof(clientCalc), 0, (struct sockaddr*) & their_addr, addr_len);
 			printf("[<]Sent %d bytes\n", numBytes);
-			calculateResult(calculate);
-			//char temp[4] = "OK\n";
-			//numBytes = sendto(sockFD, temp, strlen(temp), 0, (struct sockaddr*) & their_addr, addr_len);
+			calculateResult(&calculate);
+			numBytes = recvfrom(sockFD, &clientCalc, sizeof(clientCalc), 0, (struct sockaddr*) & their_addr, &addr_len);
+			if (strchr(oper, 'f') != NULL)
+			{
+				printf("Server result: %8.8g\n", calculate.flResult);
+				printf("[>]Recieved %d bytes, %8.8g\n", numBytes, clientCalc.flResult);
+				if (abs(calculate.flResult - clientCalc.flResult) < EPSILON)
+				{
+
+					printf("---SUCCESS---\n");
+				}
+			}
+			else
+			{
+				printf("Server result: %d\n", calculate.inResult);
+
+				printf("[>]Recieved %d bytes, %d\n", numBytes, clientCalc.inResult);
+				if (calculate.inResult == clientCalc.inResult)
+				{
+					printf("---SUCCESS---\n");
+				}
+
+			}
+
 
 		}
 		else

@@ -17,8 +17,39 @@
 
 
 #include "protocol.h"
-
-int main(int argc, char *argv[])
+void calculateResult(struct calcProtocol* calc)
+{
+	switch (calc->arith)
+	{
+	case 1:
+		calc->inResult = calc->inValue1 + calc->inValue2;
+		break;
+	case 2:
+		calc->inResult = calc->inValue1 - calc->inValue2;
+		break;
+	case 3:
+		calc->inResult = calc->inValue1 * calc->inValue2;
+		break;
+	case 4:
+		calc->inResult = calc->inValue1 / calc->inValue2;
+		break;
+	case 5:
+		calc->flResult = calc->flValue1 + calc->flValue2;
+		break;
+	case 6:
+		calc->flResult = calc->flValue1 - calc->flValue2;
+		break;
+	case 7:
+		calc->flResult = calc->flValue1 * calc->flValue2;
+		break;
+	case 8:
+		calc->flResult = calc->flValue1 / calc->flValue2;
+		break;
+	default:
+		break;
+	}
+}
+int main(int argc, char* argv[])
 {
 	if (argc < 3)
 	{
@@ -42,6 +73,12 @@ int main(int argc, char *argv[])
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
 	struct calcProtocol calculate;
+	struct timeval timeO;
+	timeO.tv_sec = 2;
+	timeO.tv_usec = 0;
+	int timeOutCounter = 3;
+	bool success = true;
+	memset(&calculate, 0, sizeof(calculate));
 	if ((returnValue = getaddrinfo(argv[1], argv[2], &hints, &servinfo)) != 0)
 	{
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(returnValue));
@@ -60,13 +97,58 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "talker: failed to create socket\n");
 		return 2;
 	}
+	if (setsockopt(sockFD, SOL_SOCKET, SO_RCVTIMEO, &timeO, sizeof(timeO)) == -1)
+	{
+		printf("Error setting socket timeout: %s\n", gai_strerror(errno));
+		exit(0);
+	}
 	numBytes = sendto(sockFD, &calcMsg, sizeof(calcMsg), 0, p->ai_addr, p->ai_addrlen);
 	printf("[<]Sent %d bytes\n", numBytes);
-	numBytes = recvfrom(sockFD, &calculate, sizeof(calculate),0, (struct sockaddr*) &servAddress, &servAddressSize);
-	printf("[>]Recieved %d bytes, %d", numBytes, calculate.arith);
+	for (int i = 0; i < timeOutCounter && success; i++)
+	{
+		numBytes = recvfrom(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & servAddress, &servAddressSize);
+		if (numBytes == -1)
+		{
+			numBytes = sendto(sockFD, &calcMsg, sizeof(calcMsg), 0, p->ai_addr, p->ai_addrlen);
+			printf("Error, resending\n[<]Sent %d bytes\n", numBytes);
 
+		}
+		else
+		{
+			if (numBytes == sizeof(calcProtocol))
+			{
+				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate.arith);
+
+			}
+			else if (numBytes == sizeof(calcMessage))
+			{
+				printf("Error\n");
+			}
+			success = false;
+		}
+	}
+	if (success)
+	{
+		printf("Timed Out\n");
+		close(sockFD);
+		exit(0);
+	}
+
+	calculateResult(&calculate);
+	if (calculate.arith > 4)
+	{
+		printf("Result = %8.8g\n", calculate.flResult);
+
+	}
+	else
+	{
+		printf("Result = %d\n", calculate.inResult);
+
+	}
+	numBytes = sendto(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & servAddress, servAddressSize);
+	printf("[<]Sent %d bytes\n", numBytes);
 	close(sockFD);
-  /* Do magic */
-  
+	/* Do magic */
+
 
 }
