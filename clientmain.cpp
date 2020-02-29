@@ -63,6 +63,7 @@ int main(int argc, char* argv[])
 	socklen_t servAddressSize = sizeof(servAddress);
 	uint16_t returnValue;
 	int numBytes;
+	struct calcMessage* serverCalcMsg;
 	struct calcMessage calcMsg;
 	calcMsg.protocol = 17;
 	calcMsg.type = 22;
@@ -72,12 +73,16 @@ int main(int argc, char* argv[])
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
-	struct calcProtocol calculate;
+	struct calcProtocol* calculate;
 	struct timeval timeO;
 	timeO.tv_sec = 2;
 	timeO.tv_usec = 0;
-	int timeOutCounter = 3;
-	bool success = true;
+	int timeOutCounter = 2;
+	bool success = false;
+	void* ptrTemp[100];
+	int ptrTempLen = sizeof(ptrTemp);
+	bool done = false;
+
 	memset(&calculate, 0, sizeof(calculate));
 	if ((returnValue = getaddrinfo(argv[1], argv[2], &hints, &servinfo)) != 0)
 	{
@@ -102,51 +107,105 @@ int main(int argc, char* argv[])
 		printf("Error setting socket timeout: %s\n", gai_strerror(errno));
 		exit(0);
 	}
-	numBytes = sendto(sockFD, &calcMsg, sizeof(calcMsg), 0, p->ai_addr, p->ai_addrlen);
+	numBytes = sendto(sockFD, &calcMsg, sizeof(calcMessage), 0, p->ai_addr, p->ai_addrlen);
 	printf("[<]Sent %d bytes\n", numBytes);
-	for (int i = 0; i < timeOutCounter && success; i++)
+
+	for (int i = 0; i <= timeOutCounter && !success; i++)
 	{
-		numBytes = recvfrom(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & servAddress, &servAddressSize);
-		if (numBytes == -1)
+		numBytes = recvfrom(sockFD, &ptrTemp, sizeof(ptrTemp), 0, (struct sockaddr*) & servAddress, &servAddressSize);
+		if (numBytes == -1 && i != timeOutCounter)
 		{
 			numBytes = sendto(sockFD, &calcMsg, sizeof(calcMsg), 0, p->ai_addr, p->ai_addrlen);
-			printf("Error, resending\n[<]Sent %d bytes\n", numBytes);
+			printf("No response, resending\n[<]Sent %d bytes\n", numBytes);
 
 		}
-		else
+		else if (numBytes != -1)
 		{
 			if (numBytes == sizeof(calcProtocol))
 			{
-				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate.arith);
+				calculate = (struct calcProtocol*) ptrTemp;
+				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate->arith);
+				calculateResult(calculate);
+				printf("My ID: %d\n", calculate->id);
+				if (calculate->arith < 5)
+				{
+					printf("Result: %d\n", calculate->inResult);
+				}
+				else
+				{
+					printf("Result: %8.8g\n", calculate->flResult);
+
+				}
+				//numBytes = sendto(sockFD, calculate, sizeof(calcProtocol), 0, p->ai_addr, p->ai_addrlen);
+				printf("[<]Sent %d bytes\n", numBytes);
+
 
 			}
 			else if (numBytes == sizeof(calcMessage))
 			{
+
+
 				printf("Error\n");
 			}
-			success = false;
+			success = true;
 		}
 	}
-	if (success)
+	if (!success)
 	{
 		printf("Timed Out\n");
 		close(sockFD);
 		exit(0);
 	}
+	success = false;
+	//for (int i = 0; i < timeOutCounter && !success; i++)
+	//{
+	//	numBytes = recvfrom(sockFD, &ptrTemp, sizeof(ptrTemp), 0, (struct sockaddr*) & servAddress, &servAddressSize);
+	//	if (numBytes == -1 && i != timeOutCounter)
+	//	{
+	//		numBytes = sendto(sockFD, calculate, sizeof(calcProtocol), 0, p->ai_addr, p->ai_addrlen);
+	//		printf("No response, resending\n[<]Sent %d bytes\n", numBytes);
 
-	calculateResult(&calculate);
-	if (calculate.arith > 4)
-	{
-		printf("Result = %8.8g\n", calculate.flResult);
+	//	}
+	//	else if (numBytes != -1)
+	//	{
+	//		if (numBytes == sizeof(calcMessage))
+	//		{
+	//			serverCalcMsg = (struct calcMessage*) ptrTemp;
+	//			if (serverCalcMsg->message == 1)
+	//			{
+	//				printf("OK!\n");
+	//				close(sockFD);
+	//				exit(0);
+	//			}
+	//			else if (serverCalcMsg->message == 2)
+	//			{
+	//				printf("NOT OK!\n");
+	//				close(sockFD);					
+	//				exit(0);
 
-	}
-	else
-	{
-		printf("Result = %d\n", calculate.inResult);
+	//			}
+	//		}
+	//		else if (numBytes == sizeof(calcProtocol))
+	//		{
+	//			printf("Wrong response\n");
+	//		}
+	//	}
 
-	}
-	numBytes = sendto(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & servAddress, servAddressSize);
-	printf("[<]Sent %d bytes\n", numBytes);
+	//}
+
+	//calculateResult(&calculate);
+	//if (calculate.arith > 4)
+	//{
+	//	printf("Result = %8.8g\n", calculate.flResult);
+
+	//}
+	//else
+	//{
+	//	printf("Result = %d\n", calculate.inResult);
+
+	//}
+	//numBytes = sendto(sockFD, &calculate, sizeof(calculate), 0, (struct sockaddr*) & servAddress, servAddressSize);
+	//printf("[<]Sent %d bytes\n", numBytes);
 	close(sockFD);
 	/* Do magic */
 
