@@ -66,8 +66,72 @@ void checkJobbList(int signum) {
 
 	return;
 }
+void convertMsgToNet(calcMessage* calcMsg)
+{
+	
+	calcMsg->protocol = htons(calcMsg->protocol);
+	calcMsg->type = htons(calcMsg->type);
+	calcMsg->message = htons(calcMsg->message);
+	calcMsg->major_version = htons(calcMsg->major_version);
+	calcMsg->minor_version = htons(calcMsg->minor_version);
 
+}
+void convertMsgToHost(calcMessage* calcMsg)
+{
 
+	calcMsg->protocol = ntohs(calcMsg->protocol);
+	calcMsg->type = ntohs(calcMsg->type);
+	calcMsg->message = ntohs(calcMsg->message);
+	calcMsg->major_version = ntohs(calcMsg->major_version);
+	calcMsg->minor_version = ntohs(calcMsg->minor_version);
+
+}
+
+void convertToNetwork(calcProtocol* calcProto)
+{
+	calcProto->arith = htons(calcProto->arith);
+	calcProto->id = htons(calcProto->id);
+	if (calcProto->arith < 5)
+	{
+		calcProto->inValue1 = htonl(calcProto->inValue1);
+		calcProto->inValue2 = htonl(calcProto->inValue2);
+
+	}
+}
+void convertToNetwork(int index)
+{
+	if (workers[index]->calc.arith < 5)
+	{
+		workers[index]->calc.inValue1 = htonl(workers[index]->calc.inValue1);
+		workers[index]->calc.inValue2 = htonl(workers[index]->calc.inValue2);
+
+	}
+	workers[index]->calc.arith = htons(workers[index]->calc.arith);
+	workers[index]->calc.id = htons(workers[index]->calc.id);
+}
+void convertToHost(int index)
+{
+	workers[index]->calc.arith = ntohs(workers[index]->calc.arith);
+	workers[index]->calc.id = ntohs(workers[index]->calc.id);
+	if (workers[index]->calc.arith < 5)
+	{
+		workers[index]->calc.inValue1 = ntohl(workers[index]->calc.inValue1);
+		workers[index]->calc.inValue2 = ntohl(workers[index]->calc.inValue2);
+
+	}
+}
+void convertToHost(calcProtocol* calcProto)
+{
+	calcProto->arith = ntohs(calcProto->arith);
+	calcProto->id = ntohs(calcProto->id);
+	if (calcProto->arith < 5)
+	{
+		calcProto->inValue1 = ntohl(calcProto->inValue1);
+		calcProto->inValue2 = ntohl(calcProto->inValue2);
+		calcProto->inResult = ntohl(calcProto->inResult);
+
+	}
+}
 void calculateResult(struct calcProtocol* calc)
 {
 	switch (calc->arith)
@@ -100,10 +164,10 @@ void calculateResult(struct calcProtocol* calc)
 		break;
 	}
 }
-void expand(struct worker** workers, int nrOfWorkers, int& maxFollowers)
+void expand()
 {
-	maxFollowers += 10;
-	struct worker** temp = new worker * [maxFollowers] {nullptr};
+	capacity += 10;
+	struct worker** temp = new worker * [capacity] {nullptr};
 	for (int i = 0; i < nrOfWorkers; i++)
 	{
 		temp[i] = workers[i];
@@ -184,12 +248,12 @@ int main(int argc, char* argv[]) {
 	signal(SIGALRM, checkJobbList);
 	setitimer(ITIMER_REAL, &alarmTime, NULL); // Start/register the alarm. 
 
-
+	printf("---- Welcome to this server! ----\n Connect a client and send a struct calcMessage to see the magic\nNOTE!!! int-values will be sent in network byte order!\n");
 	while (terminate == 0)
 	{
 		if (nrOfWorkers >= capacity)
 		{
-			expand(workers, nrOfWorkers, capacity);
+			expand();
 		}
 		printf("This is the main loop, %d time.\n", loopCount);
 		printf("Nr of workers: %d\n", nrOfWorkers);
@@ -210,6 +274,7 @@ int main(int argc, char* argv[]) {
 			{
 				printf("It's a calcMessage\n");
 				calcMsg = (struct calcMessage*) ptrTemp;
+				convertMsgToHost(calcMsg);
 				printf("Protocol: %d\n", calcMsg->protocol);
 				for (int i = 0; i < nrOfWorkers; i++)
 				{
@@ -224,13 +289,11 @@ int main(int argc, char* argv[]) {
 						{
 							workers[i]->calc.flResult = 0;
 						}
-						workers[i]->calc.inValue1 = htonl(workers[i]->calc.inValue1);
-						workers[i]->calc.inValue2 = htonl(workers[i]->calc.inValue2);
+						convertToNetwork(i);
 						numBytes = sendto(sockFD, &workers[i]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
 						printf("[<]Sent %d bytes\n", numBytes);
 						gettimeofday(&workers[i]->lastMessage, NULL);
-						workers[i]->calc.inValue1 = ntohl(workers[i]->calc.inValue1);
-						workers[i]->calc.inValue2 = ntohl(workers[i]->calc.inValue2);
+						convertToHost(i);
 						calculateResult(&workers[i]->calc);
 						alreadyExists = true;
 					}
@@ -239,8 +302,7 @@ int main(int argc, char* argv[]) {
 				if (!alreadyExists)
 				{
 
-					if (calcMsg->protocol == 17 && calcMsg->major_version == 1 &&
-						calcMsg->message == 0 && calcMsg->minor_version == 0 && calcMsg->type == 22)
+					if (calcMsg->protocol == 17 )
 					{
 
 						printf("Protocol supported!\n");
@@ -315,21 +377,18 @@ int main(int argc, char* argv[]) {
 								workers[nrOfWorkers]->calc.inValue2 = 1;
 							}
 							printf("Val 2: %d\n", workers[nrOfWorkers]->calc.inValue2);
-							workers[nrOfWorkers]->calc.inValue1 = htonl(workers[nrOfWorkers]->calc.inValue1);
-							workers[nrOfWorkers]->calc.inValue2 = htonl(workers[nrOfWorkers]->calc.inValue2);
-
 						}
 
 						workers[nrOfWorkers]->calc.id = currentClientID++;
 						printf("Current ID: %d\n", workers[nrOfWorkers]->calc.id);
 						workers[nrOfWorkers]->calc.type = 1;
 						gettimeofday(&workers[nrOfWorkers]->lastMessage, NULL);
-						printf("Seconds: %d\n", workers[nrOfWorkers]->lastMessage.tv_sec);
+						printf("Worker with ID %d has 10 seconds to respond to job\n", workers[nrOfWorkers]->calc.id);
+						convertToNetwork(nrOfWorkers);
 						numBytes = sendto(sockFD, &workers[nrOfWorkers]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
 						printf("[<]Sent %d bytes\n", numBytes);
-						workers[nrOfWorkers]->calc.inValue1 = ntohl(workers[nrOfWorkers]->calc.inValue1);
-						workers[nrOfWorkers]->calc.inValue2 = ntohl(workers[nrOfWorkers]->calc.inValue2);
-						
+						convertToHost(nrOfWorkers);
+
 						calculateResult(&workers[nrOfWorkers]->calc);
 						if (strchr(oper, 'f') != NULL)
 						{
@@ -353,6 +412,7 @@ int main(int argc, char* argv[]) {
 						wrongProto.message = 2;
 						wrongProto.major_version = 1;
 						wrongProto.minor_version = 0;
+						convertMsgToNet(&wrongProto);
 						numBytes = sendto(sockFD, &wrongProto, sizeof(wrongProto), 0, (struct sockaddr*) & their_addr, addr_len);
 						printf("[<]Sent %d bytes\n", numBytes);
 					}
@@ -363,6 +423,7 @@ int main(int argc, char* argv[]) {
 			{
 				printf("It's a calcProtocol\n");
 				calcProto = (struct calcProtocol*) ptrTemp;
+				convertToHost(calcProto);
 				printf("ID: %d\n", calcProto->id);
 				if (calcProto->arith < 5)
 				{
@@ -398,6 +459,7 @@ int main(int argc, char* argv[]) {
 										correctMsg.message = 1;
 										correctMsg.major_version = 1;
 										correctMsg.minor_version = 0;
+										convertMsgToNet(&correctMsg);
 										numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
 										printf("[<]Sent %d bytes\n", numBytes);
 									}
@@ -410,6 +472,7 @@ int main(int argc, char* argv[]) {
 										wrongMsg.message = 2;
 										wrongMsg.major_version = 1;
 										wrongMsg.minor_version = 0;
+										convertMsgToNet(&wrongMsg);
 										numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
 										printf("[<]Sent %d bytes\n", numBytes);
 									}
@@ -425,6 +488,8 @@ int main(int argc, char* argv[]) {
 										correctMsg.message = 1;
 										correctMsg.major_version = 1;
 										correctMsg.minor_version = 0;
+										convertMsgToNet(&correctMsg);
+
 										numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
 										printf("[<]Sent %d bytes\n", numBytes);
 									}
@@ -437,6 +502,7 @@ int main(int argc, char* argv[]) {
 										wrongMsg.message = 2;
 										wrongMsg.major_version = 1;
 										wrongMsg.minor_version = 0;
+										convertMsgToNet(&wrongMsg);
 										numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
 										printf("[<]Sent %d bytes\n", numBytes);
 									}
@@ -464,6 +530,7 @@ int main(int argc, char* argv[]) {
 				}
 
 			}
+		loopCount++;
 		}
 		else
 		{
@@ -471,14 +538,12 @@ int main(int argc, char* argv[]) {
 		}
 
 
-		usleep(500000);
-		loopCount++;
 
 
 
 
 	}
-	printf("done.\n");
+	printf("I will no longer work with these fools!\n");
 	close(sockFD);
 	return(0);
 }

@@ -17,6 +17,48 @@
 
 
 #include "protocol.h"
+void convertMsgToNet(calcMessage* calcMsg)
+{
+
+	calcMsg->protocol = htons(calcMsg->protocol);
+	calcMsg->type = htons(calcMsg->type);
+	calcMsg->message = htons(calcMsg->message);
+	calcMsg->major_version = htons(calcMsg->major_version);
+	calcMsg->minor_version = htons(calcMsg->minor_version);
+
+}
+void convertMsgToHost(calcMessage* calcMsg)
+{
+
+	calcMsg->protocol = ntohs(calcMsg->protocol);
+	calcMsg->type = ntohs(calcMsg->type);
+	calcMsg->message = ntohs(calcMsg->message);
+	calcMsg->major_version = ntohs(calcMsg->major_version);
+	calcMsg->minor_version = ntohs(calcMsg->minor_version);
+
+}
+void convertToHost(calcProtocol* calcProto)
+{
+	calcProto->arith = ntohs(calcProto->arith);
+	calcProto->id = ntohs(calcProto->id);
+	if (calcProto->arith < 5)
+	{
+		calcProto->inValue1 = ntohl(calcProto->inValue1);
+		calcProto->inValue2 = ntohl(calcProto->inValue2);
+
+	}
+}
+void convertToNetwork(calcProtocol* calcProto)
+{
+	calcProto->arith = htons(calcProto->arith);
+	calcProto->id = htons(calcProto->id);
+	if (calcProto->arith < 5)
+	{
+		calcProto->inValue1 = htonl(calcProto->inValue1);
+		calcProto->inValue2 = htonl(calcProto->inValue2);
+		calcProto->inResult = htonl(calcProto->inResult);
+	}
+}
 void calculateResult(struct calcProtocol* calc)
 {
 	switch (calc->arith)
@@ -105,6 +147,7 @@ int main(int argc, char* argv[])
 		printf("Error setting socket timeout: %s\n", gai_strerror(errno));
 		exit(0);
 	}
+	convertMsgToNet(&calcMsg);
 	numBytes = sendto(sockFD, &calcMsg, sizeof(calcMessage), 0, p->ai_addr, p->ai_addrlen);
 	printf("[<]Sent %d bytes\n", numBytes);
 
@@ -122,22 +165,21 @@ int main(int argc, char* argv[])
 			if (numBytes == sizeof(calcProtocol))
 			{
 				calculate = (struct calcProtocol*) ptrTemp;
-				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate->arith);
-				calculate->inValue1 = ntohl(calculate->inValue1);
-				calculate->inValue2 = ntohl(calculate->inValue2);
-
+				printf("[>]Recieved %d bytes\n", numBytes);
+				convertToHost(calculate);
 				calculateResult(calculate);
 				printf("My ID: %d\n", calculate->id);
 				if (calculate->arith < 5)
 				{
 					printf("Result: %d\n", calculate->inResult);
-					calculate->inResult = htonl(calculate->inResult);
+
 				}
 				else
 				{
 					printf("Result: %8.8g\n", calculate->flResult);
 
 				}
+				convertToNetwork(calculate);
 				numBytes = sendto(sockFD, calculate, sizeof(calcProtocol), 0, p->ai_addr, p->ai_addrlen);
 				printf("[<]Sent %d bytes\n", numBytes);
 
@@ -147,7 +189,9 @@ int main(int argc, char* argv[])
 			{
 
 
-				printf("Error\n");
+				printf("Error:Protocol not supported\n");
+				close(sockFD);
+				exit(0);
 			}
 			success = true;
 		}
@@ -173,6 +217,7 @@ int main(int argc, char* argv[])
 			if (numBytes == sizeof(calcMessage))
 			{
 				serverCalcMsg = (struct calcMessage*) ptrTemp;
+				convertMsgToHost(serverCalcMsg);
 				if (serverCalcMsg->message == 1)
 				{
 					printf("OK!\n");
@@ -189,10 +234,13 @@ int main(int argc, char* argv[])
 			}
 			else if (numBytes == sizeof(calcProtocol))
 			{
-				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate->arith);
+
+				printf("[>]Recieved %d bytes\n", numBytes);
 				printf("Wrong response\n");
+				convertToHost(calculate);
 				calculateResult(calculate);
 				printf("My ID: %d\n", calculate->id);
+				convertToNetwork(calculate);
 				numBytes = sendto(sockFD, calculate, sizeof(calcProtocol), 0, p->ai_addr, p->ai_addrlen);
 				printf("[<]Sent %d bytes\n", numBytes);
 
