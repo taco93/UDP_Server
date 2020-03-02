@@ -17,11 +17,11 @@
    client->server type = 2. 
  */
 struct calcProtocol{
-  uint16_t type;  // What message is this, 1 = server to client, 2 client to server, 3... reserved 
-  uint16_t major_version; // 1
-  uint16_t minor_version; // 0
-  uint32_t id; // Server side identification with operation. Client must return the same ID as it got from Server.
-  uint32_t arith; // What operation to perform, see mapping below. 
+  uint8_t type;  // What message is this, 1 = server to client, 2 client to server, 3... reserved 
+  uint8_t major_version; // 1
+  uint8_t minor_version; // 0
+  uint8_t id; // Server side identification with operation. Client must return the same ID as it got from Server.
+  uint8_t arith; // What operation to perform, see mapping below. 
   int32_t inValue1; // integer value 1
   int32_t inValue2; // integer value 2
   int32_t inResult; // integer result
@@ -32,7 +32,7 @@ struct calcProtocol{
 
   
 struct calcMessage {
-  uint16_t type;    // See below
+  uint8_t type;    // See below
   uint32_t message; // See below
   
   // Protocol, UDP = 17, TCP = 6, other values are reserved. 

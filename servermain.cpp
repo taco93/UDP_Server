@@ -329,6 +329,7 @@ int main(int argc, char* argv[]) {
 						printf("[<]Sent %d bytes\n", numBytes);
 						workers[nrOfWorkers]->calc.inValue1 = ntohs(workers[nrOfWorkers]->calc.inValue1);
 						workers[nrOfWorkers]->calc.inValue2 = ntohs(workers[nrOfWorkers]->calc.inValue2);
+						
 						calculateResult(&workers[nrOfWorkers]->calc);
 						if (strchr(oper, 'f') != NULL)
 						{
