@@ -131,7 +131,7 @@ int main(int argc, char* argv[])
 				if (calculate->arith < 5)
 				{
 					printf("Result: %d\n", calculate->inResult);
-					calculate->inResult = htons(calculate->inResult);
+					calculate->inResult = htonl(calculate->inResult);
 				}
 				else
 				{
