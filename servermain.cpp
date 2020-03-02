@@ -39,27 +39,29 @@ worker** workers = new worker * [capacity] { nullptr };
 /* Call back function, will be called when the SIGALRM is raised when the timer expires. */
 void checkJobbList(int signum) {
 	// As anybody can call the handler, its good coding to check the signal number that called it.
-
-	printf("Let me be, I want to sleep.\n");
-	struct timeval now;
-	gettimeofday(&now, NULL);
-	for (int i = 0; i < nrOfWorkers; i++)
+	if (signum == SIGALRM)
 	{
-		if (now.tv_sec - workers[i]->lastMessage.tv_sec > 10)
+		printf("Checking inactive workers\n");
+		struct timeval now;
+		gettimeofday(&now, NULL);
+		for (int i = 0; i < nrOfWorkers; i++)
 		{
-			printf("Worker with ID %d has not responded to the job, killing worker\n", workers[i]->calc.id);
-			delete workers[i];
-			for (int y = i; y < nrOfWorkers; y++)
+			if (now.tv_sec - workers[i]->lastMessage.tv_sec > 10)
 			{
-				workers[y] = workers[y + 1];
+				printf("Worker with ID %d has not responded to the job, killing worker\n", workers[i]->calc.id);
+				delete workers[i];
+				for (int y = i; y < nrOfWorkers; y++)
+				{
+					workers[y] = workers[y + 1];
+				}
+				nrOfWorkers--;
+				i--;
 			}
-			nrOfWorkers--;
-			i--;
 		}
-	}
-	if (loopCount > 20) {
-		printf("I had enough.\n");
-		terminate = 1;
+		if (loopCount > 200) {
+			printf("I had enough.\n");
+			terminate = 1;
+		}
 	}
 
 	return;
@@ -125,13 +127,14 @@ int main(int argc, char* argv[]) {
 	struct sockaddr_in their_addr;
 	socklen_t addr_len = sizeof(their_addr);
 	uint8_t sockFD;
-
+	struct timeval timeO;
+	timeO.tv_sec = 5;
+	timeO.tv_usec = 0;
 	struct calcMessage* calcMsg;
 	struct calcProtocol* calcProto;
 	int numBytes;
 	int currentClientID = 1;
 	void* ptrTemp[100];
-	int ptrTempLen = sizeof(ptrTemp);
 	memset(&guide, 0, sizeof(guide));
 	guide.ai_family = AF_INET;
 	guide.ai_socktype = SOCK_DGRAM;
@@ -171,6 +174,11 @@ int main(int argc, char* argv[]) {
 	alarmTime.it_interval.tv_usec = 10;
 	alarmTime.it_value.tv_sec = 10;
 	alarmTime.it_value.tv_usec = 10;
+	if (setsockopt(sockFD, SOL_SOCKET, SO_RCVTIMEO, &timeO, sizeof(timeO)) == -1)
+	{
+		printf("Error setting socket timeout: %s\n", gai_strerror(errno));
+		exit(0);
+	}
 
 	/* Regiter a callback function, associated with the SIGALRM signal, which will be raised when the alarm goes of */
 	signal(SIGALRM, checkJobbList);
@@ -192,351 +200,277 @@ int main(int argc, char* argv[]) {
 		memset(&currentAddr, 0, sizeof(currentAddr));
 		memset(&their_addr, 0, sizeof(their_addr));
 		numBytes = recvfrom(sockFD, &ptrTemp, sizeof(ptrTemp), 0, (struct sockaddr*) & their_addr, &addr_len);
-		inet_ntop(AF_INET, &their_addr.sin_addr, clientIP, clientIP_Len);
-		printf("---Client connected from %s:%d---\n", clientIP, ntohs(their_addr.sin_port));
-		printf("[>]Recieved %d bytes\n", numBytes);
-		if (numBytes == sizeof(calcMessage))
+		if (numBytes != -1)
 		{
-			printf("It's a calcMessage\n");
-			calcMsg = (struct calcMessage*) ptrTemp;
-			printf("Protocol: %d\n", calcMsg->protocol);
-			for (int i = 0; i < nrOfWorkers; i++)
+
+			inet_ntop(AF_INET, &their_addr.sin_addr, clientIP, clientIP_Len);
+			printf("---Client connected from %s:%d---\n", clientIP, ntohs(their_addr.sin_port));
+			printf("[>]Recieved %d bytes\n", numBytes);
+			if (numBytes == sizeof(calcMessage))
 			{
-				if (strcmp(clientIP, workers[i]->address) == 0 && workers[i]->port == ntohs(their_addr.sin_port))
+				printf("It's a calcMessage\n");
+				calcMsg = (struct calcMessage*) ptrTemp;
+				printf("Protocol: %d\n", calcMsg->protocol);
+				for (int i = 0; i < nrOfWorkers; i++)
 				{
-					printf("Worker already exists, resending job\n");
-					if (workers[i]->calc.arith < 5)
+					if (strcmp(clientIP, workers[i]->address) == 0 && workers[i]->port == ntohs(their_addr.sin_port))
 					{
-						workers[i]->calc.inResult = 0;
+						printf("Worker already exists, resending job\n");
+						if (workers[i]->calc.arith < 5)
+						{
+							workers[i]->calc.inResult = 0;
+						}
+						else
+						{
+							workers[i]->calc.flResult = 0;
+						}
+						workers[i]->calc.inValue1 = htons(workers[i]->calc.inValue1);
+						workers[i]->calc.inValue2 = htons(workers[i]->calc.inValue2);
+						numBytes = sendto(sockFD, &workers[i]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
+						printf("[<]Sent %d bytes\n", numBytes);
+						gettimeofday(&workers[i]->lastMessage, NULL);
+						workers[i]->calc.inValue1 = ntohs(workers[i]->calc.inValue1);
+						workers[i]->calc.inValue2 = ntohs(workers[i]->calc.inValue2);
+						calculateResult(&workers[i]->calc);
+						alreadyExists = true;
 					}
-					else
-					{
-						workers[i]->calc.flResult = 0;
-					}
-					numBytes = sendto(sockFD, &workers[nrOfWorkers]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
-					printf("[<]Sent %d bytes\n", numBytes);
-					calculateResult(&workers[i]->calc);
-					alreadyExists = true;
+
 				}
-
-			}
-			if (!alreadyExists)
-			{
-
-				if (calcMsg->protocol == 17 && calcMsg->major_version == 1 &&
-					calcMsg->message == 0 && calcMsg->minor_version == 0 && calcMsg->type == 22)
+				if (!alreadyExists)
 				{
 
-					printf("Protocol supported!\n");
-					workers[nrOfWorkers] = new struct worker;
-					printf("Created Worker\n");
-					sprintf(workers[nrOfWorkers]->address, "%s", clientIP);
-					workers[nrOfWorkers]->port = ntohs(their_addr.sin_port);
-					printf("Address of worker: %s\n", workers[nrOfWorkers]->address);
-					printf("Port of worker: %d\n", workers[nrOfWorkers]->port);
-					workers[nrOfWorkers]->calc.type = 1;
-					char* oper = randomType();
-					//Sätter in variabler i worker (operator, values, id)
-					if (strchr(oper, 'f') != NULL)
+					if (calcMsg->protocol == 17 && calcMsg->major_version == 1 &&
+						calcMsg->message == 0 && calcMsg->minor_version == 0 && calcMsg->type == 22)
 					{
-						printf("Operation: %s\n", oper);
 
-						if (strcmp(oper, "fdiv") == 0)
+						printf("Protocol supported!\n");
+						workers[nrOfWorkers] = new struct worker;
+						printf("Created Worker\n");
+						sprintf(workers[nrOfWorkers]->address, "%s", clientIP);
+						workers[nrOfWorkers]->port = ntohs(their_addr.sin_port);
+						printf("Address of worker: %s\n", workers[nrOfWorkers]->address);
+						printf("Port of worker: %d\n", workers[nrOfWorkers]->port);
+						workers[nrOfWorkers]->calc.type = 1;
+						char* oper = randomType();
+						//Sätter in variabler i worker (operator, values, id)
+						if (strchr(oper, 'f') != NULL)
 						{
-							workers[nrOfWorkers]->calc.arith = 8;
+							printf("Operation: %s\n", oper);
+
+							if (strcmp(oper, "fdiv") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 8;
+
+							}
+							else if (strcmp(oper, "fsub") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 6;
+
+							}
+							else if (strcmp(oper, "fadd") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 5;
+
+							}
+							else if (strcmp(oper, "fmul") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 7;
+
+							}
+							workers[nrOfWorkers]->calc.flValue1 = randomFloat();
+							printf("Val 1: %8.8g\n", workers[nrOfWorkers]->calc.flValue1);
+
+							workers[nrOfWorkers]->calc.flValue2 = randomFloat();
+							printf("Val 2: %8.8g\n", workers[nrOfWorkers]->calc.flValue2);
 
 						}
-						else if (strcmp(oper, "fsub") == 0)
+						else
 						{
-							workers[nrOfWorkers]->calc.arith = 6;
+							printf("Operation: %s\n", oper);
+							if (strcmp(oper, "sub") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 2;
+
+							}
+							else if (strcmp(oper, "add") == 0)
+							{
+
+								workers[nrOfWorkers]->calc.arith = 1;
+							}
+							else if (strcmp(oper, "mul") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 3;
+
+							}
+							else if (strcmp(oper, "div") == 0)
+							{
+								workers[nrOfWorkers]->calc.arith = 4;
+
+							}
+							workers[nrOfWorkers]->calc.inValue1 = randomInt();
+							printf("Val 1: %d\n", workers[nrOfWorkers]->calc.inValue1);
+							workers[nrOfWorkers]->calc.inValue2 = randomInt();
+							if (workers[nrOfWorkers]->calc.inValue2 == 0 && strcmp(oper, "div") == 0)
+							{
+								workers[nrOfWorkers]->calc.inValue2 = 1;
+							}
+							printf("Val 2: %d\n", workers[nrOfWorkers]->calc.inValue2);
+							workers[nrOfWorkers]->calc.inValue1 = htons(workers[nrOfWorkers]->calc.inValue1);
+							workers[nrOfWorkers]->calc.inValue2 = htons(workers[nrOfWorkers]->calc.inValue2);
 
 						}
-						else if (strcmp(oper, "fadd") == 0)
+
+						workers[nrOfWorkers]->calc.id = currentClientID++;
+						printf("Current ID: %d\n", workers[nrOfWorkers]->calc.id);
+						workers[nrOfWorkers]->calc.type = 1;
+						gettimeofday(&workers[nrOfWorkers]->lastMessage, NULL);
+						printf("Seconds: %d\n", workers[nrOfWorkers]->lastMessage.tv_sec);
+						numBytes = sendto(sockFD, &workers[nrOfWorkers]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
+						printf("[<]Sent %d bytes\n", numBytes);
+						workers[nrOfWorkers]->calc.inValue1 = ntohs(workers[nrOfWorkers]->calc.inValue1);
+						workers[nrOfWorkers]->calc.inValue2 = ntohs(workers[nrOfWorkers]->calc.inValue2);
+						calculateResult(&workers[nrOfWorkers]->calc);
+						if (strchr(oper, 'f') != NULL)
 						{
-							workers[nrOfWorkers]->calc.arith = 5;
+							printf("Result of worker %d: %8.8g\n", nrOfWorkers + 1, workers[nrOfWorkers]->calc.flResult);
 
 						}
-						else if (strcmp(oper, "fmul") == 0)
+						else
 						{
-							workers[nrOfWorkers]->calc.arith = 7;
+							printf("Result of worker %d: %d\n", nrOfWorkers + 1, workers[nrOfWorkers]->calc.inResult);
 
 						}
-						workers[nrOfWorkers]->calc.flValue1 = randomFloat();
-						printf("Val 1: %8.8g\n", workers[nrOfWorkers]->calc.flValue1);
-
-						workers[nrOfWorkers]->calc.flValue2 = randomFloat();
-						printf("Val 2: %8.8g\n", workers[nrOfWorkers]->calc.flValue2);
+						nrOfWorkers++;
+						printf("Nr of workers: %d\n", nrOfWorkers);
 
 					}
 					else
 					{
-						printf("Operation: %s\n", oper);
-						if (strcmp(oper, "sub") == 0)
-						{
-							workers[nrOfWorkers]->calc.arith = 2;
-
-						}
-						else if (strcmp(oper, "add") == 0)
-						{
-
-							workers[nrOfWorkers]->calc.arith = 1;
-						}
-						else if (strcmp(oper, "mul") == 0)
-						{
-							workers[nrOfWorkers]->calc.arith = 3;
-
-						}
-						else if (strcmp(oper, "div") == 0)
-						{
-							workers[nrOfWorkers]->calc.arith = 4;
-
-						}
-						workers[nrOfWorkers]->calc.inValue1 = randomInt();
-						printf("Val 1: %d\n", workers[nrOfWorkers]->calc.inValue1);
-						workers[nrOfWorkers]->calc.inValue2 = randomInt();
-						printf("Val 2: %d\n", workers[nrOfWorkers]->calc.inValue2);
-						//workers[nrOfWorkers]->calc = calculate;
+						printf("Protocol NOT supported!\n");
+						struct calcMessage wrongProto;
+						wrongProto.type = 2;
+						wrongProto.message = 2;
+						wrongProto.major_version = 1;
+						wrongProto.minor_version = 0;
+						numBytes = sendto(sockFD, &wrongProto, sizeof(wrongProto), 0, (struct sockaddr*) & their_addr, addr_len);
+						printf("[<]Sent %d bytes\n", numBytes);
 					}
+				}
+				alreadyExists = false;
+			}
+			else if (numBytes == sizeof(calcProtocol))
+			{
+				printf("It's a calcProtocol\n");
+				calcProto = (struct calcProtocol*) ptrTemp;
+				printf("ID: %d\n", calcProto->id);
+				if (calcProto->arith < 5)
+				{
+					calcProto->inResult = ntohs(calcProto->inResult);
 
-					workers[nrOfWorkers]->calc.id = currentClientID++;
-					printf("Current ID: %d\n", workers[nrOfWorkers]->calc.id);
-					workers[nrOfWorkers]->calc.type = 1;
-					gettimeofday(&workers[nrOfWorkers]->lastMessage, NULL);
-					printf("Seconds: %d\n", workers[nrOfWorkers]->lastMessage.tv_sec);
-					numBytes = sendto(sockFD, &workers[nrOfWorkers]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
-					printf("[<]Sent %d bytes\n", numBytes);
-					calculateResult(&workers[nrOfWorkers]->calc);
-					if (strchr(oper, 'f') != NULL)
-					{
-						printf("Result of worker %d: %8.8g\n", nrOfWorkers + 1, workers[nrOfWorkers]->calc.flResult);
-
-					}
-					else
-					{
-						printf("Result of worker %d: %d\n", nrOfWorkers + 1, workers[nrOfWorkers]->calc.inResult);
-
-					}
-					nrOfWorkers++;
-					printf("Nr of workers: %d\n", nrOfWorkers);
+					printf("Result of client: %d\n", calcProto->inResult);
 
 				}
 				else
 				{
-					printf("Protocol NOT supported!\n");
-					struct calcMessage wrongProto;
-					wrongProto.type = 2;
-					wrongProto.message = 2;
-					wrongProto.major_version = 1;
-					wrongProto.minor_version = 0;
-					numBytes = sendto(sockFD, &wrongProto, sizeof(wrongProto), 0, (struct sockaddr*) & their_addr, addr_len);
-					printf("[<]Sent %d bytes\n", numBytes);
+					printf("Result of client: %8.8g\n", calcProto->flResult);
+
 				}
-			}
-			alreadyExists = false;
-		}
-		else if (numBytes == sizeof(calcProtocol))
-		{
-			printf("It's a calcProtocol\n");
-			calcProto = (struct calcProtocol*) ptrTemp;
-			printf("ID: %d\n", calcProto->id);
-			if (calcProto->arith < 5)
-			{
-				printf("Result of client: %d\n", calcProto->inResult);
-
-			}
-			else
-			{
-				printf("Result of client: %8.8g\n", calcProto->flResult);
-
-			}
-			for (int i = 0; i < nrOfWorkers; i++)
-			{
-				if (calcProto->id == workers[i]->calc.id)
+				if (nrOfWorkers >= 1)
 				{
-					printf("ID found in joblist\n");
-					if (strcmp(clientIP, workers[i]->address) == 0 && ntohs(their_addr.sin_port) == workers[i]->port)
-					{
-						printf("Addresses and ports match!\n");
-						if (calcProto->arith < 5)
-						{
-							if (calcProto->inResult == workers[i]->calc.inResult)
-							{
-								printf("---SUCCESS---\n");
-								struct calcMessage correctMsg;
-								correctMsg.type = 1;
-								correctMsg.protocol = 17;
-								correctMsg.message = 1;
-								correctMsg.major_version = 1;
-								correctMsg.minor_version = 0;
-								numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
-								printf("[<]Sent %d bytes\n", numBytes);
-							}
-							else
-							{
-								printf("---FAILURE---\n");
-								struct calcMessage wrongMsg;
-								wrongMsg.type = 1;
-								wrongMsg.protocol = 17;
-								wrongMsg.message = 2;
-								wrongMsg.major_version = 1;
-								wrongMsg.minor_version = 0;
-								numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
-								printf("[<]Sent %d bytes\n", numBytes);
-							}
-						}
-						else
-						{
-							if (abs(calcProto->flResult - workers[i]->calc.flResult) < EPSILON)
-							{
-								printf("---SUCCESS---\n");
-								struct calcMessage correctMsg;
-								correctMsg.type = 1;
-								correctMsg.protocol = 17;
-								correctMsg.message = 1;
-								correctMsg.major_version = 1;
-								correctMsg.minor_version = 0;
-								numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
-								printf("[<]Sent %d bytes\n", numBytes);
-							}
-							else
-							{
-								printf("---FAILURE---\n");
-								struct calcMessage wrongMsg;
-								wrongMsg.type = 1;
-								wrongMsg.protocol = 17;
-								wrongMsg.message = 2;
-								wrongMsg.major_version = 1;
-								wrongMsg.minor_version = 0;
-								numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
-								printf("[<]Sent %d bytes\n", numBytes);
-							}
 
-						}
-						delete workers[i];
-						for (int y = i; y < nrOfWorkers; y++)
-						{
-							workers[y] = workers[y + 1];
-						}
-						nrOfWorkers--;
-					}
-					else
+					for (int i = 0; i < nrOfWorkers; i++)
 					{
-						printf("Shady client, ID doesn't match address on file\n");
+						if (calcProto->id == workers[i]->calc.id)
+						{
+							printf("ID found in joblist\n");
+							if (strcmp(clientIP, workers[i]->address) == 0 && ntohs(their_addr.sin_port) == workers[i]->port)
+							{
+								printf("Addresses and ports match!\n");
+								if (calcProto->arith < 5)
+								{
+									if (calcProto->inResult == workers[i]->calc.inResult)
+									{
+										printf("---SUCCESS---\n");
+										struct calcMessage correctMsg;
+										correctMsg.type = 1;
+										correctMsg.protocol = 17;
+										correctMsg.message = 1;
+										correctMsg.major_version = 1;
+										correctMsg.minor_version = 0;
+										numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
+										printf("[<]Sent %d bytes\n", numBytes);
+									}
+									else
+									{
+										printf("---FAILURE---\n");
+										struct calcMessage wrongMsg;
+										wrongMsg.type = 1;
+										wrongMsg.protocol = 17;
+										wrongMsg.message = 2;
+										wrongMsg.major_version = 1;
+										wrongMsg.minor_version = 0;
+										numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
+										printf("[<]Sent %d bytes\n", numBytes);
+									}
+								}
+								else
+								{
+									if (abs(calcProto->flResult - workers[i]->calc.flResult) < EPSILON)
+									{
+										printf("---SUCCESS---\n");
+										struct calcMessage correctMsg;
+										correctMsg.type = 1;
+										correctMsg.protocol = 17;
+										correctMsg.message = 1;
+										correctMsg.major_version = 1;
+										correctMsg.minor_version = 0;
+										numBytes = sendto(sockFD, &correctMsg, sizeof(correctMsg), 0, (struct sockaddr*) & their_addr, addr_len);
+										printf("[<]Sent %d bytes\n", numBytes);
+									}
+									else
+									{
+										printf("---FAILURE---\n");
+										struct calcMessage wrongMsg;
+										wrongMsg.type = 1;
+										wrongMsg.protocol = 17;
+										wrongMsg.message = 2;
+										wrongMsg.major_version = 1;
+										wrongMsg.minor_version = 0;
+										numBytes = sendto(sockFD, &wrongMsg, sizeof(wrongMsg), 0, (struct sockaddr*) & their_addr, addr_len);
+										printf("[<]Sent %d bytes\n", numBytes);
+									}
+
+								}
+								delete workers[i];
+								for (int y = i; y < nrOfWorkers; y++)
+								{
+									workers[y] = workers[y + 1];
+								}
+								nrOfWorkers--;
+							}
+							else
+							{
+								printf("Shady client, ID doesn't match address on file\n");
+							}
+						}
+
+
 					}
+				}
+				else
+				{
+					printf("No workers\n");
 				}
 
 			}
-
+		}
+		else
+		{
+			printf("No clients connecting...\n");
 		}
 
-		//if (calcMsg.protocol == thisCalc.protocol)
-		//{
-		//	workers[nrOfWorkers++] = new worker;
-		//	struct calcProtocol calculate;
-		//	struct calcProtocol clientCalc;
-		//	calculate.type = 1;
-		//	char* oper = randomType();
-		//	printf("%s\n", oper);
-		//	if (strchr(oper, 'f') != NULL)
-		//	{
-		//		if (strcmp(oper, "fdiv") == 0)
-		//		{
-		//			calculate.arith = 8;
 
-		//		}
-		//		else if (strcmp(oper, "fsub") == 0)
-		//		{
-		//			calculate.arith = 6;
-
-		//		}
-		//		else if (strcmp(oper, "fadd") == 0)
-		//		{
-		//			calculate.arith = 5;
-
-		//		}
-		//		else if (strcmp(oper, "fmul") == 0)
-		//		{
-		//			calculate.arith = 7;
-
-		//		}
-		//		calculate.flValue1 = randomFloat();
-		//		printf("Val 1: %8.8g\n", calculate.flValue1);
-
-		//		calculate.flValue2 = randomFloat();
-		//		printf("Val 2: %8.8g\n", calculate.flValue2);
-
-		//		clientCalc= calculate;
-		//	}
-		//	else
-		//	{
-		//		printf("Operation: %s\n", oper);
-		//		if (strcmp(oper, "sub") == 0)
-		//		{
-		//			calculate.arith = 2;
-
-		//		}
-		//		else if (strcmp(oper, "add") == 0)
-		//		{
-
-		//			calculate.arith = 1;
-		//		}
-		//		else if (strcmp(oper, "mul") == 0)
-		//		{
-		//			calculate.arith = 3;
-
-		//		}
-		//		else if (strcmp(oper, "div") == 0)
-		//		{
-		//			calculate.arith = 4;
-
-		//		}
-		//		calculate.inValue1 = randomInt();
-		//		printf("Val 1: %d\n", calculate.inValue1);
-		//		calculate.inValue2 = randomInt();
-		//		printf("Val 2: %d\n", calculate.inValue2);
-		//		clientCalc = calculate;
-
-		//	}
-
-			//numBytes = sendto(sockFD, &clientCalc, sizeof(clientCalc), 0, (struct sockaddr*) & their_addr, addr_len);
-			//printf("[<]Sent %d bytes\n", numBytes);
-			//calculateResult(&calculate);
-			//numBytes = recvfrom(sockFD, &clientCalc, sizeof(clientCalc), 0, (struct sockaddr*) & their_addr, &addr_len);
-			//if (strchr(oper, 'f') != NULL)
-			//{
-			//	printf("Server result: %8.8g\n", calculate.flResult);
-			//	printf("[>]Recieved %d bytes, %8.8g\n", numBytes, clientCalc.flResult);
-			//	if (abs(calculate.flResult - clientCalc.flResult) < EPSILON)
-			//	{
-
-			//		printf("---SUCCESS---\n");
-			//	}
-			//}
-			//else
-			//{
-			//	printf("Server result: %d\n", calculate.inResult);
-
-			//	printf("[>]Recieved %d bytes, %d\n", numBytes, clientCalc.inResult);
-			//	if (calculate.inResult == clientCalc.inResult)
-			//	{
-			//		printf("---SUCCESS---\n");
-			//	}
-
-			//}
-
-
-		//}
-		//else
-		//{
-		//	calcMsg.type = 2;
-		//	calcMsg.message = 2;
-		//	calcMsg.major_version = 1;
-		//	calcMsg.minor_version = 0;
-		//	numBytes = sendto(sockFD, &calcMsg, sizeof(calcMsg), 0, (struct sockaddr*) & their_addr, addr_len);
-		//	printf("[<]Sent %d bytes\n", numBytes);
-
-		//}
-		sleep(1);
+		usleep(500000);
 		loopCount++;
 
 
