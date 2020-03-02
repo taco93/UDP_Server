@@ -123,8 +123,8 @@ int main(int argc, char* argv[])
 			{
 				calculate = (struct calcProtocol*) ptrTemp;
 				printf("[>]Recieved %d bytes, %d\n", numBytes, calculate->arith);
-				calculate->inValue1 = ntohs(calculate->inValue1);
-				calculate->inValue2 = ntohs(calculate->inValue2);
+				calculate->inValue1 = ntohl(calculate->inValue1);
+				calculate->inValue2 = ntohl(calculate->inValue2);
 
 				calculateResult(calculate);
 				printf("My ID: %d\n", calculate->id);
@@ -194,6 +194,8 @@ int main(int argc, char* argv[])
 				calculateResult(calculate);
 				printf("My ID: %d\n", calculate->id);
 				numBytes = sendto(sockFD, calculate, sizeof(calcProtocol), 0, p->ai_addr, p->ai_addrlen);
+				printf("[<]Sent %d bytes\n", numBytes);
+
 				i = 0;
 
 			}

@@ -224,13 +224,13 @@ int main(int argc, char* argv[]) {
 						{
 							workers[i]->calc.flResult = 0;
 						}
-						workers[i]->calc.inValue1 = htons(workers[i]->calc.inValue1);
-						workers[i]->calc.inValue2 = htons(workers[i]->calc.inValue2);
+						workers[i]->calc.inValue1 = htonl(workers[i]->calc.inValue1);
+						workers[i]->calc.inValue2 = htonl(workers[i]->calc.inValue2);
 						numBytes = sendto(sockFD, &workers[i]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
 						printf("[<]Sent %d bytes\n", numBytes);
 						gettimeofday(&workers[i]->lastMessage, NULL);
-						workers[i]->calc.inValue1 = ntohs(workers[i]->calc.inValue1);
-						workers[i]->calc.inValue2 = ntohs(workers[i]->calc.inValue2);
+						workers[i]->calc.inValue1 = ntohl(workers[i]->calc.inValue1);
+						workers[i]->calc.inValue2 = ntohl(workers[i]->calc.inValue2);
 						calculateResult(&workers[i]->calc);
 						alreadyExists = true;
 					}
@@ -315,8 +315,8 @@ int main(int argc, char* argv[]) {
 								workers[nrOfWorkers]->calc.inValue2 = 1;
 							}
 							printf("Val 2: %d\n", workers[nrOfWorkers]->calc.inValue2);
-							workers[nrOfWorkers]->calc.inValue1 = htons(workers[nrOfWorkers]->calc.inValue1);
-							workers[nrOfWorkers]->calc.inValue2 = htons(workers[nrOfWorkers]->calc.inValue2);
+							workers[nrOfWorkers]->calc.inValue1 = htonl(workers[nrOfWorkers]->calc.inValue1);
+							workers[nrOfWorkers]->calc.inValue2 = htonl(workers[nrOfWorkers]->calc.inValue2);
 
 						}
 
@@ -327,8 +327,8 @@ int main(int argc, char* argv[]) {
 						printf("Seconds: %d\n", workers[nrOfWorkers]->lastMessage.tv_sec);
 						numBytes = sendto(sockFD, &workers[nrOfWorkers]->calc, sizeof(calcProtocol), 0, (struct sockaddr*) & their_addr, addr_len);
 						printf("[<]Sent %d bytes\n", numBytes);
-						workers[nrOfWorkers]->calc.inValue1 = ntohs(workers[nrOfWorkers]->calc.inValue1);
-						workers[nrOfWorkers]->calc.inValue2 = ntohs(workers[nrOfWorkers]->calc.inValue2);
+						workers[nrOfWorkers]->calc.inValue1 = ntohl(workers[nrOfWorkers]->calc.inValue1);
+						workers[nrOfWorkers]->calc.inValue2 = ntohl(workers[nrOfWorkers]->calc.inValue2);
 						
 						calculateResult(&workers[nrOfWorkers]->calc);
 						if (strchr(oper, 'f') != NULL)
@@ -366,7 +366,7 @@ int main(int argc, char* argv[]) {
 				printf("ID: %d\n", calcProto->id);
 				if (calcProto->arith < 5)
 				{
-					calcProto->inResult = ntohs(calcProto->inResult);
+					calcProto->inResult = ntohl(calcProto->inResult);
 
 					printf("Result of client: %d\n", calcProto->inResult);
 
